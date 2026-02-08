@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Planilha Canal do Silvério</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+* { box-sizing: border-box; font-family: 'Orbitron', sans-serif; }
+
+body {
+  margin: 0;
+  background: #eaf8ee;
+  padding: 20px;
+}
+
+h1 {
+  text-align: center;
+  color: #1e7f43;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+
+}
+
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+
+.form {
+  background: #fff;
+  padding: 15px;
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.form input, .form select, button {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+
+.full { grid-column: 1 / -1; }
+
+button {
+  background: #1e7f43;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.stat {
+  background: #dff3e6;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.filters, .actions {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+th, td {
+  padding: 8px;
+  border-bottom: 1px solid #ccc;
+  text-align: center;
+}
+
+th {
+  background: #1e7f43;
+  color: #fff;
+}
+
+.delete {
+  color: red;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+@media print {
+  .form, .filters, .actions { display: none; }
+  body { background: #fff; }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>
+  Planilha Canal do Silvério
+  <span class="ball"></span>
+</h1>
+
+<div class="form">
+  <input type="date" id="data">
+  <select id="metodo"></select>
+
+  <input placeholder="Time mandante" id="mandante">
+  <input placeholder="Time visitante" id="visitante">
+
+  <input type="number" placeholder="Valor apostado (R$)" id="valor">
+  <input type="number" step="0.01" placeholder="Odd" id="odd">
+
+  <select id="resultado">
+    <option value="">Resultado</option>
+    <option>Green</option>
+    <option>Red</option>
+  </select>
+
+  <input id="outroMetodo" placeholder="Nome do método" style="display:none">
+
+  <button class="full" onclick="salvar()">Salvar aposta</button>
+</div>
+
+<div class="stats">
+  <div class="stat">Total apostado (geral)<br><b id="totalGeral">R$ 0,00</b></div>
+  <div class="stat">Lucro (período)<br><b id="lucro">R$ 0,00</b></div>
+  <div class="stat">% Acerto (período)<br><b id="acerto">0%</b></div>
+  <div class="stat">Odd média (período)<br><b id="oddMedia">0.00</b></div>
+</div>
+
+<div class="filters">
+  <select id="filtroMetodo" onchange="render()"></select>
+  <input type="date" id="inicio" onchange="render()">
+  <input type="date" id="fim" onchange="render()">
+</div>
+
+<div class="actions">
+  <button onclick="exportarPDF()">Exportar PDF</button>
+  <button onclick="exportarExcel()">Exportar Excel</button>
+  <button onclick="exportarJSON()">Exportar Dados</button>
+  <button onclick="importarJSON()">Importar Dados</button>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>Data</th><th>Mandante</th><th>Visitante</th>
+<th>Método</th><th>Valor</th><th>Odd</th>
+<th>Resultado</th><th>Lucro</th><th>X</th>
+</tr>
+</thead>
+<tbody id="tabela"></tbody>
+</table>
+
+<input type="file" id="importFile" hidden>
+
+</div>
+
+<script>
+let apostas = JSON.parse(localStorage.getItem('apostas')) || [];
+let metodos = JSON.parse(localStorage.getItem('metodos')) ||
+['Prime Shot HT','Canto Limite','Over Gols','Outros'];
+
+function carregarMetodos(){
+  metodo.innerHTML='';
+  filtroMetodo.innerHTML='<option>Todos</option>';
+  metodos.forEach(m=>{
+    metodo.innerHTML+=`<option>${m}</option>`;
+    filtroMetodo.innerHTML+=`<option>${m}</option>`;
+  });
+}
+
+metodo.onchange=()=>{
+  outroMetodo.style.display = metodo.value==='Outros'?'block':'none';
+}
+
+function salvar(){
+  let m = metodo.value;
+  if(m==='Outros' && outroMetodo.value){
+    m = outroMetodo.value;
+    if(!metodos.includes(m)){
+      metodos.splice(metodos.length-1,0,m);
+      localStorage.setItem('metodos',JSON.stringify(metodos));
+      carregarMetodos();
+    }
+  }
+
+  apostas.push({
+    id:Date.now(),
+    data:data.value,
+    mandante:mandante.value,
+    visitante:visitante.value,
+    metodo:m,
+    valor:+valor.value,
+    odd:+odd.value,
+    resultado:resultado.value
+  });
+
+  localStorage.setItem('apostas',JSON.stringify(apostas));
+  render();
+}
+
+function excluir(id){
+  apostas = apostas.filter(a=>a.id!==id);
+  localStorage.setItem('apostas',JSON.stringify(apostas));
+  render();
+}
+
+function render(){
+  let tbody='', lucro=0, greens=0, somaOdds=0;
+
+  // TOTAL APOSTADO GERAL (SEM FILTRO)
+  let totalGeral = apostas.reduce((s,a)=>s+a.valor,0);
+  document.getElementById('totalGeral').innerText = `R$ ${totalGeral.toFixed(2)}`;
+
+  let ini = inicio.value ? new Date(inicio.value) : null;
+  let fimD = fim.value ? new Date(fim.value) : null;
+
+  let filtradas = apostas.filter(a=>{
+    let d = new Date(a.data);
+    if(ini && d < ini) return false;
+    if(fimD && d > fimD) return false;
+    if(filtroMetodo.value!=='Todos' && a.metodo!==filtroMetodo.value) return false;
+    return true;
+  });
+
+  filtradas.forEach(a=>{
+    let l = a.resultado==='Green'?a.valor*(a.odd-1):-a.valor;
+    lucro+=l;
+    somaOdds+=a.odd;
+    if(a.resultado==='Green') greens++;
+
+    tbody+=`
+    <tr>
+      <td>${a.data}</td><td>${a.mandante}</td><td>${a.visitante}</td>
+      <td>${a.metodo}</td><td>R$ ${a.valor.toFixed(2)}</td>
+      <td>${a.odd}</td><td>${a.resultado}</td>
+      <td>R$ ${l.toFixed(2)}</td>
+      <td class="delete" onclick="excluir(${a.id})">X</td>
+    </tr>`;
+  });
+
+  tabela.innerHTML=tbody;
+  lucroEl.innerText=`R$ ${lucro.toFixed(2)}`;
+  acerto.innerText=filtradas.length?((greens/filtradas.length)*100).toFixed(1)+'%':'0%';
+  oddMedia.innerText=filtradas.length?(somaOdds/filtradas.length).toFixed(2):'0.00';
+}
+
+function exportarPDF(){ window.print(); }
+
+function exportarExcel(){
+  let csv='Data;Mandante;Visitante;Método;Valor;Odd;Resultado\n';
+  apostas.forEach(a=>{
+    csv+=`${a.data};${a.mandante};${a.visitante};${a.metodo};${a.valor};${a.odd};${a.resultado}\n`;
+  });
+  let blob=new Blob([csv],{type:'text/csv'});
+  let a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='apostas.csv';
+  a.click();
+}
+
+function exportarJSON(){
+  let blob=new Blob([JSON.stringify(apostas)],{type:'application/json'});
+  let a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='apostas.json';
+  a.click();
+}
+
+function importarJSON(){ importFile.click(); }
+
+importFile.onchange=e=>{
+  let r=new FileReader();
+  r.onload=()=>{ apostas=JSON.parse(r.result); localStorage.setItem('apostas',JSON.stringify(apostas)); render(); }
+  r.readAsText(e.target.files[0]);
+}
+
+const lucroEl=document.getElementById('lucro');
+
+carregarMetodos();
+render();
+</script>
+
+</body>
+</html>
